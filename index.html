@@ -25,6 +25,11 @@
         --danger:#dc2626;
         --bar-bg:rgba(255,255,255,.96);
         --shadow:0 1px 3px rgba(15,23,42,.10),0 4px 14px rgba(15,23,42,.06);
+        --band:#16283f;
+        --cream:#fffbe6;
+        --rowblue:#dde7f2;
+        --pill1:#fbcfe8;
+        --pill2:#bae6fd;
       }
       @media (prefers-color-scheme: dark){
         :root{
@@ -36,6 +41,10 @@
           --field-bg:#1b2432;
           --bar-bg:rgba(27,36,50,.97);
           --shadow:0 1px 3px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+          --cream:#3d3623;
+          --rowblue:#2b3a4f;
+          --pill1:#5f3249;
+          --pill2:#1f4a63;
         }
       }
       *{ box-sizing:border-box; }
@@ -47,7 +56,7 @@
         font-family:"Hiragino Maru Gothic ProN","Hiragino Maru Gothic Pro","Hiragino Sans","Noto Sans JP",sans-serif;
         font-weight:700;
         touch-action:manipulation;
-        padding-bottom:196px;
+        padding-bottom:148px;
       }
       button{ font-family:inherit; font-weight:700; cursor:pointer; }
       button, select, input:not([type="checkbox"],[type="radio"]), textarea{ min-height:2rem; }
@@ -80,6 +89,7 @@
         padding:14px; margin-bottom:12px;
       }
       .card h2{ margin:0 0 12px; font-size:17px; font-weight:700; }
+      .card h2 .h2-sub{ font-size:13px; color:var(--ink-dim); margin-left:6px; white-space:nowrap; }
       .topbar{ display:flex; flex-direction:column; gap:10px; }
       .new-sheet-btn{
         align-self:flex-start; border:2px solid var(--line); background:var(--card);
@@ -145,22 +155,35 @@
       @media (max-width:720px){ .scenes{ grid-template-columns:1fr; } }
       .scene-head{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
       .scene-label{ font-size:15px; white-space:nowrap; }
-      .scene-head .hint-wrap{ flex:1 1 130px; min-width:120px; }
-      .scene-head .hint-wrap input{ border-radius:999px; }
+      .scene-head .hint-wrap{ flex:0 1 260px; min-width:150px; }
+      .scene-head .hint-wrap input{ border-radius:999px; text-align:center; }
+      .scene-head .hint-wrap.pill-pink input{ background:var(--pill1); }
+      .scene-head .hint-wrap.pill-blue input{ background:var(--pill2); }
+      .scene-head .hint-wrap.pill-pink .hint-text,
+      .scene-head .hint-wrap.pill-blue .hint-text{ left:0; right:0; text-align:center; max-width:100%; }
       .copy-btn{
         border:none; border-radius:999px; background:var(--sky); color:var(--sky-ink);
         font-size:13px; padding:8px 14px; min-height:38px; white-space:nowrap;
       }
       .scene-note{ font-size:11px; color:var(--ink-dim); white-space:nowrap; }
-      table.edit-table{ width:100%; border-collapse:collapse; }
+      table.edit-table{ width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; }
       table.edit-table th{
-        font-size:14px; text-align:center; padding:4px 6px; color:var(--ink);
+        background:var(--band); color:#fff;
+        font-size:15px; text-align:center; padding:9px 6px;
       }
-      table.edit-table td{ padding:3px 4px; vertical-align:middle; }
-      td.track-name{ width:64px; text-align:center; font-size:14px; white-space:nowrap; }
+      table.edit-table th:first-child{ border-radius:10px 0 0 0; }
+      table.edit-table th:last-child{ border-radius:0 10px 0 0; }
+      table.edit-table td{ padding:7px 10px; vertical-align:middle; }
+      table.edit-table tr.mix-row td{ background:var(--cream); }
+      table.edit-table tr.track-row td{ background:var(--rowblue); }
+      table.edit-table tr.mix-row.mix-first td{ border-bottom:1px solid var(--line); }
+      table.edit-table tr.mix-row.mix-last-row td{ border-bottom:3px solid var(--danger); }
+      table.edit-table tr.last-row td:first-child{ border-radius:0 0 0 10px; }
+      table.edit-table tr.last-row td:last-child{ border-radius:0 0 10px 0; }
+      td.track-name{ text-align:left; padding-left:16px; font-size:15px; white-space:nowrap; }
       td.track-name.mix{ color:var(--danger); }
-      td.content-cell .hint-wrap input{ min-height:38px; padding:7px 9px; font-size:15px; border-radius:8px; }
-      td.content-cell .hint-wrap .hint-text{ left:9px; }
+      td.content-cell .hint-wrap input{ min-height:40px; padding:8px 10px; font-size:15px; border-radius:9px; }
+      td.content-cell .hint-wrap .hint-text{ left:10px; }
 
       /* ---------- cameras editor ---------- */
       .cam-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; }
@@ -259,6 +282,7 @@
       }
       .out-btn.pdf-open{ background:var(--navy); color:#fff; }
       .out-btn.png{ background:var(--field-bg); color:var(--ink); border:2px solid var(--line); }
+      .bottom-bar .out-btn.png{ background:var(--card); border:2px solid var(--accent); }
       .out-btn.pdf{ background:var(--accent); color:var(--accent-ink); }
 
       /* ---------- overlays ---------- */
@@ -334,9 +358,8 @@
       </div>
 
       <div class="bottom-bar">
-        <button class="out-btn pdf-open" id="btnPdfOpen" type="button">PDFを開く</button>
-        <button class="out-btn png" id="btnPng" type="button">画像（PNG）で出力</button>
-        <button class="out-btn pdf" id="btnPdf" type="button">PDFで出力</button>
+        <button class="out-btn png" id="btnPng" type="button">⬇ 画像（PNG）で出力</button>
+        <button class="out-btn pdf" id="btnPdf" type="button">⬇ PDFで出力</button>
       </div>
     </div>
 
@@ -554,7 +577,7 @@ function renderEditor(){
   /* --- channels --- */
   var chCard = document.createElement("div");
   chCard.className = "card";
-  chCard.innerHTML = "<h2>チャンネル割り当て</h2>";
+  chCard.innerHTML = "<h2>チャンネル割り当て<span class='h2-sub'>MIX-L/R + Tr1−8</span></h2>";
   var scenes = document.createElement("div");
   scenes.className = "scenes";
   scenes.appendChild(buildSceneEditor(sh, 1));
@@ -596,10 +619,12 @@ function buildSceneEditor(sh, num){
   label.className = "scene-label";
   label.textContent = "シーン" + num;
   head.appendChild(label);
-  head.appendChild(makeHintInput({
+  var titleWrap = makeHintInput({
     value: sh[titleKey], hint: "シーン/場所/",
     onInput: function(v){ sh[titleKey] = v; changed(); }
-  }));
+  });
+  titleWrap.classList.add(num === 1 ? "pill-pink" : "pill-blue");
+  head.appendChild(titleWrap);
   if(num === 2){
     var copyBtn = document.createElement("button");
     copyBtn.type = "button";
@@ -620,11 +645,15 @@ function buildSceneEditor(sh, num){
   var table = document.createElement("table");
   table.className = "edit-table";
   var thead = document.createElement("thead");
-  thead.innerHTML = "<tr><th style='width:64px'>Tr</th><th>内容</th></tr>";
+  thead.innerHTML = "<tr><th style='width:104px'>Tr</th><th>内容</th></tr>";
   table.appendChild(thead);
   var tbody = document.createElement("tbody");
   TRACKS.forEach(function(track, i){
     var tr = document.createElement("tr");
+    tr.className = (i < 2 ? "mix-row" : "track-row") +
+      (i === 0 ? " mix-first" : "") +
+      (i === 1 ? " mix-last-row" : "") +
+      (i === TRACKS.length - 1 ? " last-row" : "");
     var tdName = document.createElement("td");
     tdName.className = "track-name" + (i < 2 ? " mix" : "");
     tdName.textContent = track;
@@ -1089,16 +1118,6 @@ function outputError(){
   showPanel("出力に失敗しました。もう一度お試しください。", [{ label: "閉じる", cls: "png", action: null }]);
 }
 
-document.getElementById("btnPdfOpen").addEventListener("click", function(){
-  if(!activeSheet()) return;
-  setProcessing(true);
-  Promise.resolve().then(captureSheetCanvas).then(function(canvas){
-    setProcessing(false);
-    var pdfBlob = canvasToPdfBlob(canvas);
-    var fname = fileBase(activeSheet()) + ".pdf";
-    openViewer(canvas.toDataURL("image/png"), function(){ shareOrDownload(pdfBlob, fname); });
-  }).catch(function(){ setProcessing(false); outputError(); });
-});
 document.getElementById("btnPng").addEventListener("click", function(){
   if(!activeSheet()) return;
   setProcessing(true);
