@@ -221,13 +221,23 @@
       /* ---------- preview ---------- */
       .zoom-bar{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
       .zoom-bar .spacer{ flex:1; }
+      /* Fixed 40px height + flex:none so the buttons never stretch to the
+         (two-line) heading height: −/＋ stay perfect circles and 全体表示
+         stays a single-line horizontal pill. */
       .zoom-btn{
-        width:44px; height:44px; border-radius:50%; border:2px solid var(--line);
+        flex:none; align-self:center;
+        width:40px; height:40px; min-height:40px; max-height:40px; border-radius:50%;
+        border:2px solid var(--line);
         background:var(--field-bg); color:var(--ink); font-size:20px; line-height:1;
+        display:flex; align-items:center; justify-content:center; padding:0;
       }
       .zoom-fit-btn{
+        flex:none; align-self:center;
+        height:40px; min-height:40px; max-height:40px;
         border:2px solid var(--line); background:var(--field-bg); color:var(--ink);
-        border-radius:999px; padding:8px 16px; font-size:14px; min-height:44px;
+        border-radius:999px; padding:0 16px; font-size:14px; line-height:1;
+        white-space:nowrap;
+        display:flex; align-items:center; justify-content:center;
       }
       #previewViewport, .viewer-viewport{
         position:relative; overflow:hidden; border-radius:10px;
@@ -286,6 +296,16 @@
       .sheet-cam-line{ font-size:17px; line-height:24px; height:24px; white-space:nowrap; }
       .sheet-memo{ font-size:15px; line-height:1.6; white-space:pre-wrap; word-break:break-all; margin-bottom:16px; }
       .sheet-staff{ margin-top:auto; text-align:right; font-size:16px; padding-top:12px; }
+      /* Optical vertical centering: with this Maru Gothic stack the glyphs
+         sit slightly low inside their frames / cells / line boxes, so every
+         sheet text run is nudged up a touch. All sheet text goes through
+         txSpan() (span.tx) — title, black card, scene pills, table cells,
+         recorder settings, camera headings and 1ch/2ch lines, staff, memo —
+         and the same .sheet markup + CSS feeds both the on-screen preview
+         and the html2canvas capture, so this single rule aligns preview
+         and PDF/PNG output alike. position:relative shifts paint only:
+         font sizes, horizontal positions and layout are unchanged. */
+      .sheet .tx{ position:relative; top:-0.08em; }
 
       .capture-holder{ position:fixed; left:-10000px; top:0; width:794px; }
       .capture-holder .sheet{ box-shadow:none; }
@@ -325,7 +345,7 @@
       }
       .ov-btn.share{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
       .viewer-viewport{ flex:1; background:#3a4353; border-radius:0; }
-      .viewer-zoombar{ display:flex; gap:8px; justify-content:center; padding:12px; }
+      .viewer-zoombar{ display:flex; gap:8px; justify-content:center; align-items:center; padding:12px; }
       .panel-overlay{
         position:fixed; inset:0; z-index:70; background:rgba(10,14,20,.55);
         display:flex; align-items:center; justify-content:center; padding:20px;
