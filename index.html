@@ -235,8 +235,9 @@
       }
 
       /* ---------- preview ---------- */
-      .zoom-bar{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
-      .zoom-bar .spacer{ flex:1; }
+      .zoom-bar{ display:flex; flex-direction:column; align-items:center; gap:8px; margin-bottom:10px; }
+      .pv-title{ font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; font-size:19px; font-weight:700; text-align:center; white-space:nowrap; }
+      .pv-zoom-row{ display:flex; align-items:center; gap:8px; }
       /* Fixed 40px height + flex:none so the buttons never stretch to the
          (two-line) heading height: −/＋ stay perfect circles and 全体表示
          stays a single-line horizontal pill. */
@@ -420,11 +421,12 @@
 
         <div class="card">
           <div class="zoom-bar">
-            <span style="font-size:15px;">PDFプレビュー（A4縦）</span>
-            <span class="spacer"></span>
-            <button class="zoom-btn" id="pvMinus" type="button" aria-label="縮小">−</button>
-            <button class="zoom-btn" id="pvPlus" type="button" aria-label="拡大">＋</button>
-            <button class="zoom-fit-btn" id="pvFit" type="button">全体表示</button>
+            <div class="pv-title">PDFプレビュー（A4縦）</div>
+            <div class="pv-zoom-row">
+              <button class="zoom-btn" id="pvMinus" type="button" aria-label="縮小">−</button>
+              <button class="zoom-btn" id="pvPlus" type="button" aria-label="拡大">＋</button>
+              <button class="zoom-fit-btn" id="pvFit" type="button">全体表示</button>
+            </div>
           </div>
           <div id="previewViewport">
             <div class="zoom-stage" id="previewStage"></div>
