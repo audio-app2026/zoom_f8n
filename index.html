@@ -357,6 +357,11 @@
       }
       .panel p{ margin:0 0 4px; font-size:15px; line-height:1.5; }
       .panel .out-btn{ min-height:48px; }
+      .viewer-hint{
+        color:#fff; background:rgba(255,255,255,.14);
+        font-size:13px; text-align:center; line-height:1.5;
+        padding:8px 14px;
+      }
       #processing{
         position:fixed; inset:0; z-index:80; background:rgba(10,14,20,.6);
         display:flex; align-items:center; justify-content:center;
@@ -418,6 +423,7 @@
         <span class="grow"></span>
         <button class="ov-btn share" id="viewerShare" type="button">保存・共有する</button>
       </div>
+      <div class="viewer-hint" id="viewerHint" hidden>画像を長押しすると保存できます</div>
       <div class="viewer-viewport" id="viewerViewport">
         <div class="zoom-stage" id="viewerStage"></div>
       </div>
@@ -437,6 +443,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
 "use strict";
 /* ================= state ================= */
@@ -668,6 +675,12 @@ function buildSceneEditor(sh, num){
   label.className = "scene-label";
   label.textContent = "シーン" + num;
   head.appendChild(label);
+  if(num === 2){
+    var note = document.createElement("span");
+    note.className = "scene-note";
+    note.textContent = "※空欄時は出力されない";
+    head.appendChild(note);
+  }
   var titleWrap = makeHintInput({
     value: sh[titleKey], hint: "シーン/場所",
     onInput: function(v){ sh[titleKey] = v; changed(); }
@@ -684,10 +697,6 @@ function buildSceneEditor(sh, num){
       saveSoon(); renderEditor(); schedulePreview();
     });
     head.appendChild(copyBtn);
-    var note = document.createElement("span");
-    note.className = "scene-note";
-    note.textContent = "※空欄時は出力されない";
-    head.appendChild(note);
   }
   box.appendChild(head);
 
@@ -1103,24 +1112,78 @@ function fileBase(sh){
   var name = (sh.program || fmtDate(sh.date) || "シート").replace(/[\\\/:*?"<>|]/g, "_");
   return "チャンネル分け表_" + name;
 }
-function downloadBlob(blob, filename){
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  a.href = url; a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+/* ============ unified output: PNG and PDF share one flow ============
+   Both formats run through exactly the same steps; the only
+   differences are the file type produced and how the viewer shows it.
+
+   1. Tapping an output button generates the file ONCE (Blob + File)
+      and holds it in an output object, then shows a result panel with
+      just two buttons: 大きく表示 and 保存・共有する.
+   2. 保存・共有する hands the already-generated File to
+      navigator.share({files}) synchronously inside the tap handler:
+      no async generation in between, no programmatic download-link
+      clicks, and no navigation to blob: URLs. (In-app browsers block
+      the latter two silently, which is why earlier builds appeared to
+      do nothing when the save button was tapped.)
+   3. If sharing is unavailable or fails, the flow never ends
+      silently: the viewer opens with save guidance (PNG: long-press
+      the image to save it; PDF: guidance text under the pages).
+   4. Generation failures reject and surface in an error panel. */
+function makeOutput(kind){
+  return captureSheetCanvas().then(function(canvas){
+    /* The sheet image: the viewer shows it directly for PNG, and it is
+       the PDF viewer's fallback if pdf.js is unavailable. A data: URL
+       in an <img> is not a navigation, so in-app browsers allow it. */
+    var imgSrc = canvas.toDataURL("image/png");
+    if(kind === "png"){
+      return new Promise(function(resolve, reject){
+        canvas.toBlob(function(blob){
+          if(blob) resolve(finishOutput(kind, blob, imgSrc));
+          else reject(new Error("画像データの生成に失敗しました"));
+        }, "image/png");
+      });
+    }
+    return finishOutput(kind, canvasToPdfBlob(canvas), imgSrc);
+  });
 }
-function shareOrDownload(blob, filename){
+function finishOutput(kind, blob, imgSrc){
+  var filename = fileBase(activeSheet()) + (kind === "png" ? ".png" : ".pdf");
   var file = null;
-  try{ file = new File([blob], filename, { type: blob.type }); }catch(e){}
-  if(file && navigator.canShare && navigator.canShare({ files: [file] })){
-    navigator.share({ files: [file] }).catch(function(err){
-      if(err && err.name !== "AbortError") downloadBlob(blob, filename);
+  try{ file = new File([blob], filename, { type: blob.type }); }
+  catch(e){ file = null; }
+  return { kind: kind, blob: blob, file: file, filename: filename, imgSrc: imgSrc };
+}
+function shareOutput(out){
+  var canShare = false;
+  if(out.file && typeof navigator.share === "function"){
+    if(typeof navigator.canShare === "function"){
+      try{ canShare = !!navigator.canShare({ files: [out.file] }); }
+      catch(e){ canShare = false; }
+    } else {
+      canShare = true; /* share exists but canShare does not: try it */
+    }
+  }
+  if(!canShare){ showOutputViewer(out, true); return; }
+  var result = null;
+  try{ result = navigator.share({ files: [out.file] }); }
+  catch(e){ showOutputViewer(out, true); return; }
+  if(result && typeof result.catch === "function"){
+    result.catch(function(err){
+      if(err && err.name === "AbortError") return; /* user cancelled the share sheet */
+      showOutputViewer(out, true);
     });
-  } else {
-    downloadBlob(blob, filename);
+  }
+}
+function showOutputViewer(out, withGuidance){
+  var share = function(){ shareOutput(out); };
+  if(out.kind === "pdf") openPdfViewer(out.blob, out.imgSrc, share);
+  else openViewer(out.imgSrc, share);
+  if(withGuidance){
+    var hint = document.getElementById("viewerHint");
+    hint.textContent = out.kind === "png"
+      ? "共有での保存が使えませんでした。画像を長押しすると保存できます。"
+      : "共有での保存が使えませんでした。保存する場合は、Safariでこのページを開いて「保存・共有する」をお試しください。";
+    hint.hidden = false;
   }
 }
 function canvasToPdfBlob(canvas){
@@ -1149,6 +1212,9 @@ var viewerZoom = createZoom(viewerViewport, viewerStage, function(){
 });
 var viewerShareAction = null;
 function openViewer(imgSrc, shareAction){
+  document.getElementById("viewerHint").hidden = true;
+  var shareBtn = document.getElementById("viewerShare");
+  if(shareBtn) shareBtn.hidden = !shareAction;
   viewerStage.innerHTML = "";
   viewerImg = document.createElement("img");
   viewerImg.src = imgSrc;
@@ -1162,6 +1228,79 @@ function openViewer(imgSrc, shareAction){
   viewerImg.onload = function(){ viewerZoom.reset(); };
   requestAnimationFrame(function(){ viewerZoom.reset(); });
 }
+/* In-page PDF viewer: renders the generated PDF with pdf.js onto
+   canvases inside the existing full-screen viewer overlay. The PDF
+   bytes are read from the blob as an ArrayBuffer — the page never
+   navigates to a blob: URL, which WKWebView blocks. If pdf.js failed
+   to load (or parsing fails), falls back to the sheet's PNG rendering
+   (fallbackImgSrc), which is the exact image embedded in the PDF. */
+function openPdfViewer(pdfBlob, fallbackImgSrc, shareAction){
+  document.getElementById("viewerHint").hidden = true;
+  var shareBtn = document.getElementById("viewerShare");
+  if(shareBtn) shareBtn.hidden = !shareAction;
+  viewerShareAction = shareAction;
+  viewerStage.innerHTML = "";
+  var holder = document.createElement("div");
+  holder.style.width = "794px";
+  holder.style.background = "#ffffff";
+  holder.style.display = "block";
+  viewerStage.appendChild(holder);
+  viewerImg = holder; /* viewerZoom measures this element */
+  viewer.hidden = false;
+  requestAnimationFrame(function(){ viewerZoom.reset(); });
+
+  function showFallbackImg(){
+    if(viewer.hidden) return;
+    holder.innerHTML = "";
+    var img = document.createElement("img");
+    img.src = fallbackImgSrc;
+    img.alt = "出力されたシート";
+    img.style.width = "794px";
+    img.style.display = "block";
+    img.draggable = false;
+    holder.appendChild(img);
+    img.onload = function(){ viewerZoom.reset(); };
+    requestAnimationFrame(function(){ viewerZoom.reset(); });
+  }
+
+  if(!window.pdfjsLib || !pdfBlob || typeof pdfBlob.arrayBuffer !== "function"){
+    showFallbackImg();
+    return;
+  }
+  try{
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }catch(e){ /* worker setup failed: getDocument below will reject and fall back */ }
+  pdfBlob.arrayBuffer().then(function(buf){
+    return window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  }).then(function(pdf){
+    var chain = Promise.resolve();
+    for(var n = 1; n <= pdf.numPages; n++){
+      (function(pageNum){
+        chain = chain.then(function(){
+          return pdf.getPage(pageNum).then(function(page){
+            var base = page.getViewport({ scale: 1 });
+            /* Render at 2x the 794px display width for sharp text */
+            var vp = page.getViewport({ scale: (794 / base.width) * 2 });
+            var cv = document.createElement("canvas");
+            cv.width = Math.floor(vp.width);
+            cv.height = Math.floor(vp.height);
+            cv.style.width = "794px";
+            cv.style.display = "block";
+            holder.appendChild(cv);
+            viewerZoom.reset();
+            return page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+          });
+        });
+      })(n);
+    }
+    return chain;
+  }).then(function(){
+    viewerZoom.reset();
+  }).catch(function(){
+    showFallbackImg();
+  });
+}
 document.getElementById("viewerClose").addEventListener("click", function(){ viewer.hidden = true; });
 document.getElementById("viewerShare").addEventListener("click", function(){
   if(viewerShareAction) viewerShareAction();
@@ -1170,45 +1309,30 @@ document.getElementById("vwMinus").addEventListener("click", function(){ viewerZ
 document.getElementById("vwPlus").addEventListener("click", function(){ viewerZoom.zoomIn(); });
 document.getElementById("vwFit").addEventListener("click", function(){ viewerZoom.reset(); });
 
-function outputError(){
-  showPanel("出力に失敗しました。もう一度お試しください。", [{ label: "閉じる", cls: "png", action: null }]);
+function outputError(err){
+  var msg = "出力に失敗しました。もう一度お試しください。";
+  if(err && err.message) msg += "（" + err.message + "）";
+  showPanel(msg, [{ label: "閉じる", cls: "png", action: null }]);
 }
 
-document.getElementById("btnPng").addEventListener("click", function(){
+/* Both output buttons run the same flow: generate and hold the file,
+   then offer exactly two actions — view it large, or save/share it. */
+function startOutput(kind){
   if(!activeSheet()) return;
   setProcessing(true);
-  Promise.resolve().then(captureSheetCanvas).then(function(canvas){
-    canvas.toBlob(function(blob){
-      setProcessing(false);
-      if(!blob){ outputError(); return; }
-      var fname = fileBase(activeSheet()) + ".png";
-      var url = URL.createObjectURL(blob);
-      showPanel("画像（PNG）を出力しました。", [
-        { label: "画像を開く", cls: "pdf-open", action: function(){
-            openViewer(url, function(){ shareOrDownload(blob, fname); });
-          } },
-        { label: "保存・共有する", cls: "pdf", action: function(){ shareOrDownload(blob, fname); } },
-        { label: "閉じる", cls: "png", action: null }
-      ]);
-    }, "image/png");
-  }).catch(function(){ setProcessing(false); outputError(); });
-});
-document.getElementById("btnPdf").addEventListener("click", function(){
-  if(!activeSheet()) return;
-  setProcessing(true);
-  Promise.resolve().then(captureSheetCanvas).then(function(canvas){
+  makeOutput(kind).then(function(out){
     setProcessing(false);
-    var pdfBlob = canvasToPdfBlob(canvas);
-    var fname = fileBase(activeSheet()) + ".pdf";
-    showPanel("PDFを出力しました。", [
-      { label: "PDFを開く", cls: "pdf-open", action: function(){
-          openViewer(canvas.toDataURL("image/png"), function(){ shareOrDownload(pdfBlob, fname); });
-        } },
-      { label: "保存・共有する", cls: "pdf", action: function(){ shareOrDownload(pdfBlob, fname); } },
-      { label: "閉じる", cls: "png", action: null }
+    showPanel(kind === "png" ? "画像（PNG）を出力しました。" : "PDFを出力しました。", [
+      { label: "大きく表示", cls: "pdf-open", action: function(){ showOutputViewer(out, false); } },
+      { label: "保存・共有する", cls: "pdf", action: function(){ shareOutput(out); } }
     ]);
-  }).catch(function(){ setProcessing(false); outputError(); });
-});
+  }).catch(function(err){
+    setProcessing(false);
+    outputError(err);
+  });
+}
+document.getElementById("btnPng").addEventListener("click", function(){ startOutput("png"); });
+document.getElementById("btnPdf").addEventListener("click", function(){ startOutput("pdf"); });
 
 /* ================= hide output bar while typing ================= */
 /* While any text input / textarea (basic info, scene titles, channel
