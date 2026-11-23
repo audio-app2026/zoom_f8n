@@ -174,11 +174,17 @@
       .fill-fields .hint-wrap textarea:focus{ border:none; }
 
       /* ---------- channel editor ---------- */
-      .scenes{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+      .scenes{ display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%; }
       @media (max-width:720px){ .scenes{ grid-template-columns:1fr; } }
+      /* Each scene block (pill + table) spans the full card width: without
+         an explicit width some webviews shrink-wrap the grid item to its
+         content, leaving a white margin on the card's right side. */
+      .scenes > div{ width:100%; min-width:0; }
       .scene-head{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
       .scene-label{ font-size:15px; white-space:nowrap; }
-      .scene-head .hint-wrap{ flex:0 1 260px; min-width:150px; }
+      /* The scene pill grows to fill the head row, so its right edge
+         reaches the card's right edge like the table below it. */
+      .scene-head .hint-wrap{ flex:1 1 160px; min-width:120px; }
       .scene-head .hint-wrap input{ border:2px solid transparent; border-radius:999px; text-align:center; }
       .scene-head .hint-wrap.pill-pink input{ background:var(--pill1); border-color:var(--pill1-line); }
       .scene-head .hint-wrap.pill-blue input{ background:var(--pill2); border-color:var(--pill2-line); }
@@ -764,7 +770,7 @@ function buildCamBlock(sh, cam, idx){
   block.appendChild(head);
 
   block.appendChild(makeHintInput({
-    value: cam.title, hint: "カメラ番号",
+    value: cam.title, hint: ["カメラ番号 1カメ/Aカメ","カメラ番号 2カメ/Bカメ","カメラ番号 3カメ/Cカメ","カメラ番号 4カメ/Dカメ"][idx] || "カメラ番号",
     onInput: function(v){ cam.title = v; changed(); }
   }));
 
