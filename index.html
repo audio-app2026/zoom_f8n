@@ -1114,233 +1114,53 @@ function fileBase(sh){
 }
 /* ============ unified output: PNG and PDF share one flow ============
    Both formats run through exactly the same steps; the only
-   differences are the file type produced and how the viewer shows it.
+   difference is the file type produced.
 
    1. Tapping an output button generates the file ONCE (Blob + File)
-      and holds it in an output object, then shows a result panel with
-      just two buttons: 大きく表示 and 保存・共有する.
-   2. 保存・共有する hands the already-generated File to
-      navigator.share({files}) synchronously inside the tap handler:
-      no async generation in between, no programmatic download-link
-      clicks, and no navigation to blob: URLs. (In-app browsers block
-      the latter two silently, which is why earlier builds appeared to
-      do nothing when the save button was tapped.)
-   3. If sharing is unavailable or fails, the flow never ends
-      silently: the viewer opens with save guidance (PNG: long-press
-      the image to save it; PDF: guidance text under the pages).
-   4. Generation failures reject and surface in an error panel. */
-/* ============ file-size reduction (resolution unchanged) ============
+      and then directly opens the share sheet via
+      navigator.share({files}) — no intermediate result panel and
+      no "大きく表示" viewer step in the output flow.
+   2. If sharing is unavailable or fails (user cancellation via
+      AbortError excluded), a minimal panel is shown so the flow
+      never ends silently, with an option to retry sharing the
+      already-generated file.
+   3. Generation failures reject and surface in an error panel. */
+/* ============ output encoding (resolution unchanged) ============
    The capture scale (4x) and the output pixel dimensions are NOT
-   changed. Size is cut only in how the pixels are encoded:
+   changed.
+   - PNG: written as a normal lossless PNG straight from the captured
+     canvas (canvas.toBlob / toDataURL, "image/png"). No palette
+     quantization, no custom encoder.
    - PDF: the sheet image is embedded as a high-quality JPEG
-     (quality 0.95) instead of a lossless PNG. At 0.95 the text edges
-     stay clean, while the PDF typically drops to roughly a third of
-     the PNG-embedded size.
-   - PNG: the sheet is flat colours + text, so it is palette-quantized
-     to 256 colours and written as a true indexed-colour PNG (colour
-     type 3, 1 byte per pixel before compression). Dimensions are
-     identical and, with no dithering and a median-cut palette built
-     from the sheet itself, flat fills are exact and anti-aliased text
-     edges map to near-identical shades. If indexed encoding is not
-     available (no CompressionStream), it falls back to a normal PNG
-     of the same quantized pixels. */
+     (quality 0.95) instead of a lossless PNG, with jsPDF compression
+     enabled. At 0.95 the text edges stay clean, while the PDF
+     typically drops to roughly a third of the PNG-embedded size. */
 
-/* --- median-cut palette over a 5-bit-per-channel histogram --- */
-function buildPalette(imageData, maxColors){
-  var data = imageData.data;
-  var total = imageData.width * imageData.height;
-  var NB = 32768; /* 32*32*32 bins */
-  var count = new Uint32Array(NB);
-  var sumR = new Float64Array(NB), sumG = new Float64Array(NB), sumB = new Float64Array(NB);
-  for(var i = 0; i < total; i++){
-    var o = i * 4;
-    var r = data[o], g = data[o + 1], b = data[o + 2];
-    var bin = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
-    count[bin]++;
-    sumR[bin] += r; sumG[bin] += g; sumB[bin] += b;
-  }
-  var bins = [];
-  for(var k = 0; k < NB; k++) if(count[k]) bins.push(k);
-  function boxAvg(box){
-    var n = 0, r2 = 0, g2 = 0, b2 = 0;
-    for(var j = 0; j < box.length; j++){
-      var bn = box[j], c = count[bn];
-      n += c; r2 += sumR[bn]; g2 += sumG[bn]; b2 += sumB[bn];
-    }
-    if(!n) return [255, 255, 255];
-    return [Math.round(r2 / n), Math.round(g2 / n), Math.round(b2 / n)];
-  }
-  function boxRange(box){
-    var mnR = 32, mxR = -1, mnG = 32, mxG = -1, mnB = 32, mxB = -1, n = 0;
-    for(var j = 0; j < box.length; j++){
-      var bn = box[j];
-      var br = (bn >> 10) & 31, bg = (bn >> 5) & 31, bb = bn & 31;
-      if(br < mnR) mnR = br; if(br > mxR) mxR = br;
-      if(bg < mnG) mnG = bg; if(bg > mxG) mxG = bg;
-      if(bb < mnB) mnB = bb; if(bb > mxB) mxB = bb;
-      n += count[bn];
-    }
-    return { r: mxR - mnR, g: mxG - mnG, b: mxB - mnB, n: n };
-  }
-  var boxes = [bins];
-  while(boxes.length < maxColors){
-    /* split the box with the largest (range x population) score */
-    var best = -1, bestScore = -1, bestRange = null;
-    for(var bi = 0; bi < boxes.length; bi++){
-      if(boxes[bi].length < 2) continue;
-      var rg = boxRange(boxes[bi]);
-      var score = Math.max(rg.r, rg.g, rg.b) * Math.log(rg.n + 1);
-      if(score > bestScore){ bestScore = score; best = bi; bestRange = rg; }
-    }
-    if(best < 0 || Math.max(bestRange.r, bestRange.g, bestRange.b) === 0) break;
-    var box = boxes[best];
-    var ch = bestRange.r >= bestRange.g && bestRange.r >= bestRange.b ? 0 :
-             (bestRange.g >= bestRange.b ? 1 : 2);
-    var shift = ch === 0 ? 10 : (ch === 1 ? 5 : 0);
-    box.sort(function(a, b){ return ((a >> shift) & 31) - ((b >> shift) & 31); });
-    /* split at the weighted median along that channel */
-    var totalN = 0;
-    for(var m = 0; m < box.length; m++) totalN += count[box[m]];
-    var acc = 0, cut = 1;
-    for(var m2 = 0; m2 < box.length - 1; m2++){
-      acc += count[box[m2]];
-      if(acc >= totalN / 2){ cut = m2 + 1; break; }
-    }
-    boxes.splice(best, 1, box.slice(0, cut), box.slice(cut));
-  }
-  var palette = boxes.map(boxAvg);
-  /* bin -> palette index (exact box membership, no distance search) */
-  var binIndex = new Int32Array(NB).fill(-1);
-  boxes.forEach(function(box, idx){
-    for(var j = 0; j < box.length; j++) binIndex[box[j]] = idx;
-  });
-  return { palette: palette, binIndex: binIndex };
-}
-function paletteIndices(imageData, binIndex){
-  var data = imageData.data;
-  var total = imageData.width * imageData.height;
-  var idx = new Uint8Array(total);
-  for(var i = 0; i < total; i++){
-    var o = i * 4;
-    var bin = ((data[o] >> 3) << 10) | ((data[o + 1] >> 3) << 5) | (data[o + 2] >> 3);
-    idx[i] = binIndex[bin];
-  }
-  return idx;
-}
-
-/* --- minimal indexed-PNG encoder (CRC32 + CompressionStream zlib) --- */
-var CRC_TABLE = null;
-function crc32(bytes){
-  if(!CRC_TABLE){
-    CRC_TABLE = new Int32Array(256);
-    for(var n = 0; n < 256; n++){
-      var c = n;
-      for(var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-      CRC_TABLE[n] = c;
-    }
-  }
-  var crc = -1;
-  for(var i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 255];
-  return (crc ^ -1) >>> 0;
-}
-function pngChunk(type, data){
-  var len = data.length;
-  var out = new Uint8Array(12 + len);
-  var dv = new DataView(out.buffer);
-  dv.setUint32(0, len);
-  for(var i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
-  out.set(data, 8);
-  var crcData = new Uint8Array(4 + len);
-  crcData.set(out.subarray(4, 8), 0);
-  crcData.set(data, 4);
-  dv.setUint32(8 + len, crc32(crcData));
-  return out;
-}
-function deflateZlib(buf){
-  var cs = new CompressionStream("deflate"); /* RFC1950 zlib = PNG IDAT format */
-  var writer = cs.writable.getWriter();
-  writer.write(buf);
-  writer.close();
-  return new Response(cs.readable).arrayBuffer();
-}
-function encodeIndexedPNG(width, height, palette, indices){
-  var raw = new Uint8Array(height * (width + 1));
-  for(var y = 0; y < height; y++){
-    raw[y * (width + 1)] = 0; /* filter: none */
-    raw.set(indices.subarray(y * width, (y + 1) * width), y * (width + 1) + 1);
-  }
-  return deflateZlib(raw).then(function(zlibBuf){
-    var ihdr = new Uint8Array(13);
-    var dv = new DataView(ihdr.buffer);
-    dv.setUint32(0, width);
-    dv.setUint32(4, height);
-    ihdr[8] = 8;  /* bit depth 8 */
-    ihdr[9] = 3;  /* colour type 3: indexed */
-    var plte = new Uint8Array(palette.length * 3);
-    palette.forEach(function(c, i){
-      plte[i * 3] = c[0]; plte[i * 3 + 1] = c[1]; plte[i * 3 + 2] = c[2];
-    });
-    var sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-    return new Blob(
-      [sig, pngChunk("IHDR", ihdr), pngChunk("PLTE", plte),
-       pngChunk("IDAT", new Uint8Array(zlibBuf)), pngChunk("IEND", new Uint8Array(0))],
-      { type: "image/png" }
-    );
-  });
-}
-function blobToDataURL(blob){
+function canvasToPngBlob(canvas){
   return new Promise(function(resolve, reject){
-    var fr = new FileReader();
-    fr.onload = function(){ resolve(fr.result); };
-    fr.onerror = function(){ reject(fr.error || new Error("読み込みに失敗しました")); };
-    fr.readAsDataURL(blob);
-  });
-}
-/* Quantized PNG for the sheet canvas: same width/height as before. */
-function encodeQuantizedPNG(canvas){
-  var ctx = canvas.getContext("2d");
-  var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  var built = buildPalette(imageData, 256);
-  var indices = paletteIndices(imageData, built.binIndex);
-  function fallback(){
-    /* Same quantized pixels through the browser's own PNG encoder. */
-    var out = new ImageData(canvas.width, canvas.height);
-    for(var i = 0; i < indices.length; i++){
-      var c = built.palette[indices[i]];
-      out.data[i * 4] = c[0]; out.data[i * 4 + 1] = c[1];
-      out.data[i * 4 + 2] = c[2]; out.data[i * 4 + 3] = 255;
-    }
-    var qc = document.createElement("canvas");
-    qc.width = canvas.width; qc.height = canvas.height;
-    qc.getContext("2d").putImageData(out, 0, 0);
-    return new Promise(function(resolve, reject){
-      qc.toBlob(function(blob){
+    if(canvas.toBlob){
+      canvas.toBlob(function(blob){
         if(blob) resolve(blob);
         else reject(new Error("画像データの生成に失敗しました"));
       }, "image/png");
-    });
-  }
-  var blobPromise;
-  if(typeof CompressionStream === "function"){
-    blobPromise = Promise.resolve()
-      .then(function(){ return encodeIndexedPNG(canvas.width, canvas.height, built.palette, indices); })
-      .catch(function(){ return fallback(); });
-  } else {
-    blobPromise = fallback();
-  }
-  return blobPromise.then(function(blob){
-    /* The viewer shows (and long-press saves) this same PNG data. */
-    return blobToDataURL(blob).then(function(dataUrl){
-      return { blob: blob, imgSrc: dataUrl };
-    });
+    } else {
+      try{
+        var dataUrl = canvas.toDataURL("image/png");
+        var bin = atob(dataUrl.split(",")[1]);
+        var bytes = new Uint8Array(bin.length);
+        for(var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        resolve(new Blob([bytes], { type: "image/png" }));
+      }catch(e){ reject(e); }
+    }
   });
 }
 
 function makeOutput(kind){
   return captureSheetCanvas().then(function(canvas){
     if(kind === "png"){
-      return encodeQuantizedPNG(canvas).then(function(result){
-        return finishOutput(kind, result.blob, result.imgSrc);
+      var imgSrc = canvas.toDataURL("image/png");
+      return canvasToPngBlob(canvas).then(function(blob){
+        return finishOutput(kind, blob, imgSrc);
       });
     }
     /* PDF viewer fallback image: a JPEG preview is enough on screen;
@@ -1357,6 +1177,12 @@ function finishOutput(kind, blob, imgSrc){
   catch(e){ file = null; }
   return { kind: kind, blob: blob, file: file, filename: filename, imgSrc: imgSrc };
 }
+function showShareFallback(out){
+  showPanel("共有できませんでした。もう一度お試しください。", [
+    { label: "もう一度共有する", cls: "pdf", action: function(){ shareOutput(out); } },
+    { label: "閉じる", cls: "png", action: null }
+  ]);
+}
 function shareOutput(out){
   var canShare = false;
   if(out.file && typeof navigator.share === "function"){
@@ -1367,14 +1193,14 @@ function shareOutput(out){
       canShare = true; /* share exists but canShare does not: try it */
     }
   }
-  if(!canShare){ showOutputViewer(out, true); return; }
+  if(!canShare){ showShareFallback(out); return; }
   var result = null;
   try{ result = navigator.share({ files: [out.file] }); }
-  catch(e){ showOutputViewer(out, true); return; }
+  catch(e){ showShareFallback(out); return; }
   if(result && typeof result.catch === "function"){
     result.catch(function(err){
       if(err && err.name === "AbortError") return; /* user cancelled the share sheet */
-      showOutputViewer(out, true);
+      showShareFallback(out);
     });
   }
 }
@@ -1521,17 +1347,14 @@ function outputError(err){
   showPanel(msg, [{ label: "閉じる", cls: "png", action: null }]);
 }
 
-/* Both output buttons run the same flow: generate and hold the file,
-   then offer exactly two actions — view it large, or save/share it. */
+/* Both output buttons run the same flow: generate the file, then
+   go straight to the share sheet. No result panel, no viewer step. */
 function startOutput(kind){
   if(!activeSheet()) return;
   setProcessing(true);
   makeOutput(kind).then(function(out){
     setProcessing(false);
-    showPanel(kind === "png" ? "画像（PNG）を出力しました。" : "PDFを出力しました。", [
-      { label: "大きく表示", cls: "pdf-open", action: function(){ showOutputViewer(out, false); } },
-      { label: "保存・共有する", cls: "pdf", action: function(){ shareOutput(out); } }
-    ]);
+    shareOutput(out);
   }).catch(function(err){
     setProcessing(false);
     outputError(err);
