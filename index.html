@@ -1136,8 +1136,16 @@ function captureSheetCanvas(){
 
 function fileBase(sh){
   var parts = [];
-  var dateStr = fmtDate(sh.date);
-  if(dateStr) parts.push(dateStr.replace(/[\\\/:*?"<>|]/g, "_"));
+  var dateStr = "";
+  if(sh.date){
+    var dp = String(sh.date).split("-");
+    if(dp.length === 3){
+      dateStr = ("0" + dp[1]).slice(-2) + ("0" + dp[2]).slice(-2);
+    } else {
+      dateStr = fmtDate(sh.date).replace(/[\\\/:*?"<>|]/g, "_");
+    }
+  }
+  if(dateStr) parts.push(dateStr);
   var prog = (sh.program || "").trim();
   if(prog) parts.push(prog.replace(/[\\\/:*?"<>|]/g, "_"));
   parts.push("音声チャンネル分け");
